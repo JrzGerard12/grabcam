@@ -6,8 +6,8 @@ import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, filters, MessageHandler
 from flask import Flask, request, send_file
+from telegram.error import InvalidToken  # Solo importamos InvalidToken
 import threading
-from telegram.error import InvalidToken, Unauthorized
 
 # Configuración del bot
 TOKEN = os.getenv("TOKEN")
@@ -207,8 +207,6 @@ try:
     application = Application.builder().token(TOKEN).build()
 except InvalidToken:
     raise ValueError("El token de Telegram es inválido. Verifica el valor de TOKEN.")
-except Unauthorized:
-    raise ValueError("El token de Telegram fue rechazado por el servidor. Genera un nuevo token con BotFather.")
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("stop", stop))
