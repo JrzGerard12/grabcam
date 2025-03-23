@@ -1,0 +1,28 @@
+# Usar una imagen base con Python
+FROM python:3.11-slim
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    curl \
+    unzip \
+    ssh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Descargar e instalar Ngrok
+RUN curl -s https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip -o ngrok.zip \
+    && unzip ngrok.zip \
+    && mv ngrok /usr/local/bin/ngrok \
+    && chmod +x /usr/local/bin/ngrok \
+    && rm ngrok.zip
+
+# Establecer el directorio de trabajo
+WORKDIR /app
+
+# Copiar los archivos del proyecto
+COPY . .
+
+# Instalar dependencias de Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Comando para ejecutar el bot
+CMD ["python", "main.py"]
